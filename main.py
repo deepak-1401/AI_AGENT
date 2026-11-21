@@ -1,52 +1,43 @@
 import os
 from dotenv import load_dotenv
 from pydantic import BaseModel
-from langchain_openai import ChatOpenAI
-from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import PydanticOutputParser
-from langchain.agents import create_tool_calling_agent, AgentExecutor 
+from langchain.agents import create_agent
+from tools import search_tool, wiki_tool, save_to_txt
 
 load_dotenv()
 
 class ResearchResponse(BaseModel):
     topic: str
     summary: str
-    soruce: list[str]
+    sources: list[str]
     tools: list[str]
 
 llm = ChatGoogleGenerativeAI(
     model="gemini-3.1-flash-lite",
-    api_key=os.getenv("GOOGLE_API_KEY")
+    api_key=os.getenv("GOOGLE_API_KEY"),
+)
+tools = [search_tool, wiki_tool, save_to_txt]
+agent = create_agent(
+    model=llm,
+    tools=tools,
+    system_prompt=(
+        "You are a research assistant that helps generate a research paper. "
+        "Answer the query and use necessary tools."
+    ),
+    response_format=ResearchResponse,
+)
+Query = input("Enter your research query: ")
+raw_response = agent.invoke(
+    {
+        "messages": [
+            {
+                "role": "user",
+                "content": Query,
+            }
+        ]
+    }
 )
 
-parser = PydanticOutputParser(pydantic_object = ResearchResponse)
-
-prompt = ChatPromptTemplate.from_messages(
-    [
-        (
-            "system",
-            """
-            you are a research assistant that will help generate a research paper.
-            answer the query and use neccessary tools.
-            Warp the output in the format and provide no other text \n{format_instruction}
-            """,
-        ),
-        ("placeholder","{chat_history}"),
-        ("human","{query}"),
-        ("placeholder","{agent_scratchpad}"),
-    ]
-).partial(format_instruction = parser.get_format_instructions())
-
-agent = create_tool_calling_agent(
-    llm=llm,
-    prompt=prompt,
-    tools=[],
-)
-
-agent_executor = AgentExecutor(agent=agent, tools=[], verbose=False)
-
-raw_response = agent_executor.invoke({"query": "What is the impact of climate change on polar bear populations under 20 words?"}) 
-
-print(raw_response)
+# Access the structured Pydantic object directly
+print(raw_response["structured_response"])
